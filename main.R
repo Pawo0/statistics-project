@@ -4,7 +4,7 @@ library(ggplot2)
 library(kableExtra)
 library(ParamHelpers) # Nowa zależność
 
-set.seed(42068)
+set.seed(420)
 
 # 1. Pobieranie prawdziwych dziedzin ---------------------------------------------------------
 get_domain <- function(fn) {
