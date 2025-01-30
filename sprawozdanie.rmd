@@ -1,0 +1,269 @@
+# Minimalizacja stochastyczna - porównanie algorytmów
+`r Sys.Date()`<br>
+Robert Raniszewski, Paweł Czajczyk
+
+# Wstęp
+
+Projekt polega na prostym opracowaniu statystycznym wyników porównania działania wybranych algorytmów minimalizacji stochastycznej. Zaimplementowaliśmy algorytmy **PRS** oraz **GA**. Do porównania wybraliśmy funkcje **Alpine01** i **Schwefel**.
+
+# Przedstawienie funkcji
+## Alpine01
+Funkcja **Alpine01** jest funkcją testową wykorzystywaną w optymalizacji, szczególnie w badaniach nad algorytmami optymalizacji globalnej. Charakteryzuje się wieloma lokalnymi minimami, co sprawia, że jest trudna do optymalizacji. Funkcja jest zdefiniowana jako:
+
+$$
+f(x) = \sum_{i=1}^{d} \left( |x_i \sin(x_i) + 0.1 x_i| \right)
+$$
+
+gdzie:<br>
+- \( x_i \) to elementy wektora zmiennych wejściowych, <br>
+- \( d \) to liczba wymiarów funkcji (liczba zmiennych wejściowych),<br>
+- funkcja jest zwykle testowana w zakresie \( x_i \in [-10, 10] \).<br>
+
+#### Cechy funkcji:
+- **Globalne minimum**: Funkcja ma globalne minimum w punkcie \( x = 0 \) (dla wszystkich zmiennych \( x_i = 0 \)).
+- **Lokalne minima**: Funkcja ma wiele lokalnych minimów, co czyni ją wymagającą w testowaniu algorytmów optymalizacji.
+- **Nieliniowość**: Funkcja jest nieliniowa, co sprawia, że jej analiza i optymalizacja stanowią wyzwanie.
+
+## Funkcja Schwefela
+
+Funkcja **Schwefela** jest jedną z klasycznych funkcji testowych wykorzystywanych w optymalizacji. Ma wiele lokalnych minimów, co czyni ją trudnym przypadkiem do rozwiązania przy użyciu algorytmów optymalizacji. Funkcja Schwefela jest zdefiniowana jako:
+
+$$
+f(x) = 418.9829 \cdot d - \sum_{i=1}^{d} x_i \sin\left(\sqrt{|x_i|}\right)
+$$
+
+gdzie:<br>
+- \( x_i \) to elementy wektora zmiennych wejściowych,<br>
+- \( d \) to liczba wymiarów funkcji,<br>
+- funkcja jest zwykle testowana w zakresie \( x_i \in [-500, 500] \).<br>
+
+#### Cechy funkcji:
+- **Globalne minimum**: Funkcja osiąga swoje globalne minimum w punkcie \( x = 420.9687 \) (gdzie \( x_i = 420.9687 \) dla wszystkich \( i \)).
+- **Lokalne minima**: Funkcja ma wiele lokalnych minimów, co czyni ją wyzwaniem dla algorytmów optymalizacji globalnej.
+- **Nieliniowość i trudność**: Funkcja jest nieliniowa i wykazuje skomplikowaną strukturę, pełną zagięć i oscylacji, przez co jest trudna do optymalizacji.
+
+# Analiza
+W analizie zostały użyte następujące kroki:<br>
+1. Przeprowadzenie obliczeń na danych wejściowych.<br>
+2. Obliczenie średnich wartości oraz różnic między różnymi miarami.<br>
+3. Wizualizacja wyników.<br>
+
+# Kod źródłowy
+
+Korzystamy z bibliotek oraz ustawiamy seed dla powtarzalności testów:
+```{r warning=FALSE, message = FALSE}
+library(smoof)
+library(ecr)
+library(ggplot2)
+library(kableExtra)
+library(ParamHelpers) # Nowa zależność
+
+set.seed(420)
+```
+Pobieramy dziedziny funkcji oraz generujemy losowe punkty:
+```{r warning=FALSE, message = FALSE}
+# 1. Pobieranie prawdziwych dziedzin ---------------------------------------------------------
+get_domain <- function(fn) {
+ps <- getParamSet(fn)
+list(
+lower = sapply(ps$pars, function(p) p$lower),
+upper = sapply(ps$pars, function(p) p$upper)
+)
+}
+
+# 2. Poprawiona funkcja generująca punkty ----------------------------------------------------
+getRandomPoint <- function(dimensions, domain) {
+sapply(1:dimensions, function(i) {
+runif(1, domain$lower[i], domain$upper[i])
+})
+}
+```
+Implementujemy algorytmy PRS i GA:
+```{r warning=FALSE, message = FALSE}
+# 3. Uniwersalna funkcja PRS -----------------------------------------------------------------
+performPRS <- function(n_eval, fn, domain) {
+  dimensions <- length(domain$lower)
+  points <- matrix(nrow = n_eval, ncol = dimensions)
+  for(i in 1:n_eval) {
+    points[i,] <- getRandomPoint(dimensions, domain)
+  }
+  min(apply(points, 1, fn))
+}
+
+# 4. Uniwersalna funkcja GA ------------------------------------------------------------------
+performGA <- function(n_runs, n_eval, fn, domain) {
+  dimensions <- length(domain$lower)
+  res <- replicate(n_runs, ecr(
+    fitness.fun = fn,
+    n.dim = dimensions,
+    lower = domain$lower,
+    upper = domain$upper,
+    minimize = TRUE,
+    representation = "float",
+    mu = 50L,
+    lambda = 25L,
+    terminators = list(stopOnEvals(n_eval)),
+    mutator = setup(mutGauss, lower = domain$lower, upper = domain$upper)
+  )$best.y)
+  res
+}
+```
+Tworzymy funkcję przeprowadzającą badania:
+```{r warning=FALSE, message = FALSE}
+run_experiment <- function(fn_name, dimensions, n_runs = 100) {
+  # Inicjalizacja funkcji
+  fn <- switch(fn_name,
+               "Alpine01" = makeAlpine01Function(dimensions),
+               "Schwefel" = makeSchwefelFunction(dimensions))
+
+  domain <- get_domain(fn)
+  true_min <- ifelse(fn_name == "Alpine01", 0, -418.9829 * dimensions)
+
+  # PRS
+  prs_results <- replicate(n_runs, performPRS(1000, fn, domain))
+
+  # GA
+  ga_results <- performGA(n_runs, 1000, fn, domain)
+
+  list(
+    prs = prs_results,
+    ga = ga_results,
+    stats = data.frame(
+      Function = fn_name,
+      Dimensions = dimensions,
+      PRS_mean = mean(prs_results),
+      GA_mean = mean(ga_results),
+      True_min = true_min
+    )
+  )
+}
+```
+Przeprowadzenie badań:
+```{r warning=FALSE, message = FALSE}
+results <- list(
+  run_experiment("Alpine01", 2),
+  run_experiment("Alpine01", 10),
+  run_experiment("Alpine01", 20),
+  run_experiment("Schwefel", 2),
+  run_experiment("Schwefel", 10),
+  run_experiment("Schwefel", 20)
+)
+```
+#Wizualizacja
+Funkcje do wizualizacji wyników:
+```{r warning=FALSE, message = FALSE}
+visualize_histogram <- function(data, true_min) {
+  ggplot(data, aes(x = value, fill = algorithm)) +
+    geom_histogram(position = "identity", alpha = 0.7, bins = 30) +
+    geom_vline(xintercept = true_min, color = "red", linetype = "dashed") +
+    facet_wrap(~algorithm, ncol = 1) +
+    labs(title = paste("Histogram wyników dla", unique(data$function_dim)),
+         x = "Wartość funkcji", y = "Częstotliwość") +
+    theme_bw()
+}
+
+visualize_violin <- function(data, true_min) {
+  ggplot(data, aes(x = algorithm, y = value, fill = algorithm)) +
+    geom_violin(trim = FALSE, show.legend = FALSE) +
+    geom_boxplot(width = 0.1, fill = "white", outlier.size = 1) +
+    geom_hline(yintercept = true_min, color = "red", linetype = "dashed") +
+    labs(title = paste("Wykres skrzypcowy dla", unique(data$function_dim)),
+         x = "Algorytm", y = "Wartość funkcji") +
+    theme_bw() +
+    theme(legend.position = "none")
+}
+```
+Generowanie wykresów (czerwoną linią przerywaną oznaczyliśmy faktyczne minimum globalne funkcji):
+```{r warning=FALSE, message = FALSE}
+for(res in results) {
+  fn_dim <- paste0(res$stats$Function, " ", res$stats$Dimensions, "D")
+  df <- data.frame(
+    function_dim = fn_dim,
+    algorithm = rep(c("PRS", "GA"), each = length(res$prs)),
+    value = c(res$prs, res$ga)
+  )
+  print(visualize_histogram(df, res$stats$True_min))
+  print(visualize_violin(df, res$stats$True_min))
+}
+```
+
+# Wnioski z porównania wyników algorytmów PRS i GA na funkcjach Alpine01 i Schwefel
+Prezentacja wyników w tabeli:
+```{r warning=FALSE, message = FALSE}
+stats_df <- do.call(rbind, lapply(results, function(x) as.data.frame(x$stats)))
+stats_df$PRS_mean <- round(stats_df$PRS_mean, 3)
+stats_df$GA_mean <- round(stats_df$GA_mean, 3)
+stats_df$Difference <- round(abs(stats_df$PRS_mean - stats_df$GA_mean), 3)
+stats_df$True_min <- round(stats_df$True_min, 3)
+stats_df %>%
+kable(align = "c", caption = "Porównanie wyników") %>%
+kable_styling(bootstrap_options = c("striped", "hover")) %>%
+add_header_above(c(" " = 2, "Średnie" = 2, " " = 2))
+```
+### 1. Funkcja Alpine01
+
+Funkcja Alpine01 wykazuje szereg lokalnych minimów, co czyni ją wymagającą dla algorytmów optymalizacyjnych. Analiza wyników dla różnych wymiarów tej funkcji (2, 10, 20) pokazuje, że oba algorytmy (PRS i GA) radziły sobie stosunkowo dobrze w porównaniu do funkcji Schwefela, uzyskując wyniki bliskie globalnemu minimum.
+
+- **Dla wymiaru 2**:
+- **PRS** osiągnął wartość średnią 0.065, a **GA** uzyskał wynik 0.001. Oba algorytmy uzyskały bardzo zbliżony wynik do **True_min = 0**, co sugeruje, że algorytmy poradziły sobie bardzo dobrze z optymalizacją w tym przypadku.
+- Różnica wynosi **0.064** (PRS) i **0.001** (GA), co pokazuje, że GA uzyskał wynik bliższy rzeczywistemu minimum.
+
+- **Dla wymiaru 10**:
+- **PRS** uzyskał wynik 9.716, a **GA** wynik 2.554, przy czym **True_min** wynosi 0.
+- Różnice wynoszą **7.162** dla PRS i **2.554** dla GA, co pokazuje, że GA wykazał się lepszym wynikiem w porównaniu do PRS. Choć obydwa algorytmy miały trudności w osiągnięciu dokładnego minimum, GA okazał się bardziej skuteczny w tym przypadku.
+
+- **Dla wymiaru 20**:
+- **PRS** uzyskał wynik 29.693, a **GA** wynik 8.732.
+- Różnice wynoszą **20.961** (PRS) i **8.732** (GA), a mimo to wyniki obu algorytmów są wciąż znacznie lepsze w porównaniu do funkcji Schwefela, choć nadal znacząco odbiegają od globalnego minimum. GA wykazuje lepsze wyniki w tym przypadku.
+
+### 2. Funkcja Schwefel
+
+Funkcja Schwefela jest bardziej złożona i posiada większą liczbę lokalnych minimów, co stanowi większe wyzwanie dla algorytmów optymalizacyjnych. Wyniki dla różnych wymiarów funkcji Schwefela pokazują, że oba algorytmy mają większe trudności w uzyskaniu wartości bliskich globalnemu minimum.
+
+- **Dla wymiaru 2**:
+- **PRS** uzyskał wynik -802.956, a **GA** wynik -654.641, podczas gdy **True_min** wynosi -837.966.
+- Różnice wynoszą **148.315** dla PRS i **183.325** dla GA, co pokazuje, że oba algorytmy utknęły w lokalnych minimach i nie były w stanie znaleźć wartości bliskiej globalnemu minimum.
+
+- **Dla wymiaru 10**:
+- **PRS** osiągnął wynik -1996.004, a **GA** wynik -1476.651, przy czym **True_min** wynosi -4189.829.
+- Różnice wynoszą **519.353** dla PRS i **1713.178** dla GA, co wskazuje, że GA miał znacznie większą trudność w optymalizacji funkcji Schwefela i bardziej oddalił się od rzeczywistego minimum w porównaniu do PRS.
+
+- **Dla wymiaru 20**:
+- **PRS** uzyskał wynik -2772.805, a **GA** wynik -2063.234, a **True_min** wynosi -8379.658.
+- Różnice wynoszą **709.571** dla PRS i **5736.424** dla GA. Wyniki są znacznie gorsze w przypadku funkcji Schwefela, a szczególnie dla GA, który miał trudności z optymalizowaniem tej funkcji w wyższych wymiarach.
+
+### 3. Podsumowanie
+
+- **Alpine01**: W przypadku funkcji Alpine01 oba algorytmy były stosunkowo efektywne, ale **GA** był nieco lepszy, zwłaszcza w wyższych wymiarach. **PRS** również dobrze poradził sobie z tą funkcją, jednak z większymi różnicami w porównaniu do rzeczywistego minimum.
+- **Schwefel**: W przypadku funkcji Schwefela **PRS** okazał się bardziej skuteczny, szczególnie w wyższych wymiarach, gdzie **GA** miał znaczne trudności w osiągnięciu wyników bliskich globalnemu minimum.
+
+### Wnioski:
+
+- **Alpine01**: W funkcji Alpine01 oba algorytmy były stosunkowo efektywne, ale **GA** był nieco lepszy, zwłaszcza w wyższych wymiarach. **PRS** również dobrze poradził sobie z tą funkcją, jednak z większymi różnicami w porównaniu do rzeczywistego minimum.
+- **Schwefel**: W przypadku funkcji Schwefela **PRS** okazał się bardziej skuteczny, szczególnie w wyższych wymiarach, gdzie **GA** miał trudności w osiągnięciu wyników bliskich globalnemu minimum.
+
+# 9. Testy
+```{r warning=FALSE, message = FALSE}
+# Funkcja do przeprowadzenia testu t-studenta
+run_t_test <- function(prs_results, ga_results) {
+# Przeprowadzenie testu t-studenta dla wyników PRS i GA
+  test <- t.test(prs_results, ga_results, paired = TRUE) # paired = TRUE zakłada, że próbki są
+  print(test)
+}
+
+for (res in results) {
+
+  prs_results <- res$prs
+  ga_results <- res$ga
+  cat(res$stats$Function, res$stats$Dimension, "Dimensions" , "\n")
+  run_t_test(prs_results, ga_results)
+}
+```
+#### Wnioski
+
+1. **Istotność różnic** – Wszystkie testy wykazały istotne statystycznie różnice między metodami (*p < 2.2e-16*).
+2. **Wpływ wymiaru** – Różnice między metodami rosną wraz ze wzrostem liczby wymiarów.
+3. **Wydajność metod**:
+- **PRS** działa *lepiej* dla funkcji **Alpine01**.
+- **GA** działa *lepiej* dla funkcji **Schwefel**.
+4. **Dobór metody** – Wybór algorytmu optymalizacji powinien zależeć od funkcji testowej i wymiarowości problemu.

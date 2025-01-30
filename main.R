@@ -124,15 +124,39 @@ for(res in results) {
   print(visualize_violin(df, res$stats$True_min))
 }
 
+
+
 # 8. Prezentacja wyników --------------------------------------------------------------------
-stats_df <- do.call(rbind, lapply(results, function(x) x$stats))
+stats_df <- do.call(rbind, lapply(results, function(x) as.data.frame(x$stats)))
+stats_df$PRS_mean <- round(stats_df$PRS_mean, 3)
+stats_df$GA_mean <- round(stats_df$GA_mean, 3)
+stats_df$Difference <- round(abs(stats_df$PRS_mean - stats_df$GA_mean), 3)
+stats_df$True_min <- round(stats_df$True_min, 3)
+# stats_df %>%
+#   mutate(
+#     PRS_mean = round(PRS_mean, 3),
+#     GA_mean = round(GA_mean, 3),
+#     Difference = round(abs(PRS_mean - GA_mean), 3),
+#     True_min = round(True_min, 3)
+#   ) %>%
 stats_df %>%
-  mutate(
-    PRS_mean = round(PRS_mean, 3),
-    GA_mean = round(GA_mean, 3),
-    Difference = round(abs(PRS_mean - GA_mean), 3),
-    True_min = round(True_min, 3)
-  ) %>%
   kable(align = "c", caption = "Porównanie wyników") %>%
   kable_styling(bootstrap_options = c("striped", "hover")) %>%
   add_header_above(c(" " = 2, "Średnie" = 2, " " = 2))
+
+
+# 9. Testy
+# Funkcja do przeprowadzenia testu t-studenta
+run_t_test <- function(prs_results, ga_results) {
+  # Przeprowadzenie testu t-studenta dla wyników PRS i GA
+  test <- t.test(prs_results, ga_results, paired = TRUE) # paired = TRUE zakłada, że próbki są
+  print(test)
+}
+
+for (res in results) {
+
+  prs_results <- res$prs
+  ga_results <- res$ga
+  cat(res$stats$Function, res$stats$Dimension, "Dimensions" , "\n")
+  run_t_test(prs_results, ga_results)
+}
